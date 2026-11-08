@@ -1,0 +1,100 @@
+name: Deploy My Money Tracker PWA to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Validate PWA Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          if [ -f "package.json" ]; then
+            npm ci || npm install
+          elif [ -f "MyMoneyTracker/package.json" ]; then
+            cd MyMoneyTracker && (npm ci || npm install)
+          else
+            echo "Error: package.json not found!"
+            exit 1
+          fi
+
+      - name: Build production PWA bundle
+        run: |
+          if [ -f "package.json" ]; then
+            npm run build
+          else
+            cd MyMoneyTracker && npm run build
+          fi
+
+      - name: Validate production build & privacy rules
+        run: |
+          if [ -d "dist" ]; then
+            DIST_DIR="dist"
+          elif [ -d "MyMoneyTracker/dist" ]; then
+            DIST_DIR="MyMoneyTracker/dist"
+          else
+            echo "Error: dist directory was not generated!"
+            exit 1
+          fi
+
+          echo "Validating PWA artifacts in $DIST_DIR..."
+          test -f "$DIST_DIR/index.html" || (echo "Missing index.html" && exit 1)
+          test -f "$DIST_DIR/manifest.webmanifest" || (echo "Missing manifest.webmanifest" && exit 1)
+          test -f "$DIST_DIR/sw.js" || (echo "Missing sw.js" && exit 1)
+          test -f "$DIST_DIR/offline.html" || (echo "Missing offline.html" && exit 1)
+          test -f "$DIST_DIR/icons/icon-192x192.png" || (echo "Missing icon-192x192.png" && exit 1)
+          test -f "$DIST_DIR/icons/icon-512x512.png" || (echo "Missing icon-512x512.png" && exit 1)
+
+          # Ensure zero personal financial backups or CSV exports are present in dist
+          if find "$DIST_DIR" -maxdepth 2 \( -name "*.csv" -o -name "*Backup*.json" \) | grep -q .; then
+            echo "Security Error: Personal financial backup or CSV file detected in build output!"
+            exit 1
+          fi
+
+          # Normalize artifact path to ./dist-pages for upload
+          rm -rf ./dist-pages
+          cp -R "$DIST_DIR" ./dist-pages
+          cp ./dist-pages/index.html ./dist-pages/404.html
+          echo "Build validation succeeded."
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload deployment artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist-pages
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
