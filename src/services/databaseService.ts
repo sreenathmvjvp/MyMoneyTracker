@@ -1060,6 +1060,108 @@ export const databaseService = {
   },
 
   /**
+   * Updates a self-transfer record and atomically adjusts source/destination account balances.
+   */
+  async updateSelfTransfer(
+    id: string,
+    updates: Omit<TransferRecord, 'id' | 'createdAt' | 'updatedAt' | 'month' | 'fingerprint'>
+  ): Promise<TransferRecord> {
+    const nowIso = new Date().toISOString();
+    const existing = await db.transfers.get(id);
+    if (!existing) {
+      throw new Error('Transfer record not found in IndexedDB.');
+    }
+
+    const month = toMonthKey(updates.transactionDate);
+    const fingerprint = createFingerprint(
+      updates.transactionDate,
+      updates.fromAccountId,
+      updates.toAccountId,
+      updates.amount,
+      updates.description
+    );
+
+    const updatedRecord: TransferRecord = {
+      ...existing,
+      ...updates,
+      id,
+      month,
+      fingerprint,
+      updatedAt: nowIso,
+    };
+
+    const validation = validateTransferRecord(updatedRecord);
+    if (!validation.valid) {
+      throw new Error(validation.errors.join(' '));
+    }
+
+    await db.transaction('rw', [db.transfers, db.accounts], async () => {
+      const oldFrom = await db.accounts.get(existing.fromAccountId);
+      if (oldFrom) {
+        await db.accounts.update(oldFrom.id, {
+          currentBalance: oldFrom.currentBalance + existing.amount,
+          updatedAt: nowIso,
+        });
+      }
+      const oldTo = await db.accounts.get(existing.toAccountId);
+      if (oldTo) {
+        await db.accounts.update(oldTo.id, {
+          currentBalance: oldTo.currentBalance - existing.amount,
+          updatedAt: nowIso,
+        });
+      }
+
+      const newFrom = await db.accounts.get(updatedRecord.fromAccountId);
+      if (newFrom) {
+        await db.accounts.update(newFrom.id, {
+          currentBalance: newFrom.currentBalance - updatedRecord.amount,
+          updatedAt: nowIso,
+        });
+      }
+      const newTo = await db.accounts.get(updatedRecord.toAccountId);
+      if (newTo) {
+        await db.accounts.update(newTo.id, {
+          currentBalance: newTo.currentBalance + updatedRecord.amount,
+          updatedAt: nowIso,
+        });
+      }
+
+      await db.transfers.put(updatedRecord);
+    });
+
+    return updatedRecord;
+  },
+
+  /**
+   * Deletes a self-transfer record and atomically reverses account balance adjustments.
+   */
+  async deleteSelfTransfer(id: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+
+    await db.transaction('rw', [db.transfers, db.accounts], async () => {
+      const existing = await db.transfers.get(id);
+      if (!existing) return;
+
+      const fromAcc = await db.accounts.get(existing.fromAccountId);
+      if (fromAcc) {
+        await db.accounts.update(fromAcc.id, {
+          currentBalance: fromAcc.currentBalance + existing.amount,
+          updatedAt: nowIso,
+        });
+      }
+      const toAcc = await db.accounts.get(existing.toAccountId);
+      if (toAcc) {
+        await db.accounts.update(toAcc.id, {
+          currentBalance: toAcc.currentBalance - existing.amount,
+          updatedAt: nowIso,
+        });
+      }
+
+      await db.transfers.delete(id);
+    });
+  },
+
+  /**
    * Creates or updates a monthly budget (overall, category, or family) in IndexedDB.
    * Ensures only one budget exists per (month, budgetType, targetId).
    */
@@ -1406,6 +1508,124 @@ export const databaseService = {
 
       await db.emiPayments.delete(emiId);
     });
+  },
+
+  /**
+   * Updates an EMI payment record and atomically recalculates loan outstandingPrincipal
+   * and bank account balances.
+   */
+  async updateEmiPayment(
+    emiId: string,
+    updates: {
+      loanId: string;
+      transactionDate: string;
+      totalAmount: number;
+      principalComponent: number;
+      interestComponent: number;
+      accountId: string;
+      accountName: string;
+      paymentMode: EmiPaymentRecord['paymentMode'];
+      notes?: string;
+    }
+  ): Promise<EmiPaymentRecord> {
+    const nowIso = new Date().toISOString();
+    let savedPayment!: EmiPaymentRecord;
+
+    await db.transaction('rw', [db.emiPayments, db.loans, db.accounts], async () => {
+      const existing = await db.emiPayments.get(emiId);
+      if (!existing) {
+        throw new Error('EMI payment record not found in IndexedDB.');
+      }
+
+      // 1. Revert old loan principal and old account balance
+      const oldLoan = await db.loans.get(existing.loanId);
+      if (oldLoan) {
+        const restoredPrincipal = Math.min(
+          oldLoan.originalAmount,
+          oldLoan.outstandingPrincipal + existing.principalComponent
+        );
+        await db.loans.update(oldLoan.id, {
+          outstandingPrincipal: restoredPrincipal,
+          status: restoredPrincipal > 0 ? 'active' : oldLoan.status,
+          updatedAt: nowIso,
+        });
+      }
+
+      if (existing.accountId) {
+        const oldAcc = await db.accounts.get(existing.accountId);
+        if (oldAcc) {
+          await db.accounts.update(oldAcc.id, {
+            currentBalance: oldAcc.currentBalance + existing.totalAmount,
+            updatedAt: nowIso,
+          });
+        }
+      }
+
+      // 2. Apply updated EMI payment to target loan and account
+      const nextLoan = await db.loans.get(updates.loanId);
+      if (!nextLoan) {
+        throw new Error('Associated loan not found in IndexedDB.');
+      }
+
+      const month = toMonthKey(updates.transactionDate);
+      const fingerprint = createFingerprint(
+        updates.loanId,
+        month,
+        updates.transactionDate,
+        updates.totalAmount
+      );
+
+      const nextPrincipal = Math.max(
+        0,
+        nextLoan.outstandingPrincipal - updates.principalComponent
+      );
+
+      const updatedRecord: EmiPaymentRecord = {
+        ...existing,
+        id: emiId,
+        loanId: nextLoan.id,
+        loanName: nextLoan.name,
+        transactionDate: updates.transactionDate,
+        month,
+        totalAmount: updates.totalAmount,
+        principalComponent: updates.principalComponent,
+        interestComponent: updates.interestComponent,
+        remainingPrincipalAfter: nextPrincipal,
+        accountId: updates.accountId,
+        accountName: updates.accountName,
+        paymentMode: updates.paymentMode,
+        notes: updates.notes?.trim() || undefined,
+        fingerprint,
+        updatedAt: nowIso,
+      };
+
+      const validation = validateEmiPaymentRecord(updatedRecord);
+      if (!validation.valid) {
+        throw new Error(validation.errors.join(' '));
+      }
+
+      await db.emiPayments.put(updatedRecord);
+
+      await db.loans.update(nextLoan.id, {
+        outstandingPrincipal: nextPrincipal,
+        status: nextPrincipal <= 0 ? 'closed' : nextLoan.status,
+        updatedAt: nowIso,
+      });
+
+      if (updatedRecord.accountId) {
+        const newAcc = await db.accounts.get(updatedRecord.accountId);
+        if (newAcc) {
+          await db.accounts.update(newAcc.id, {
+            currentBalance: newAcc.currentBalance - updatedRecord.totalAmount,
+            updatedAt: nowIso,
+          });
+        }
+      }
+
+      savedPayment = updatedRecord;
+    });
+
+    return savedPayment;
   },
 
   /**

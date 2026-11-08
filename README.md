@@ -67,7 +67,7 @@ npm run preview
 
 ## 5. Android Mobile & Desktop PWA Installation Guide
 
-1. **Open the HTTPS URL**: Open `https://sreenathmvjpv.github.io/MyMoneyTracker/` in **Google Chrome** on your Android phone (or Chrome/Edge on Desktop).
+1. **Open the HTTPS URL**: Open `https://sreenathmvjvp.github.io/MyMoneyTracker/` in **Google Chrome** on your Android phone (or Chrome/Edge on Desktop).
 2. **Trigger Installation**:
    - Tap the **Install App** button in the top header bar (or inside **Settings → PWA & Android Installation Guide**), **OR**
    - Tap the Chrome menu (**⋮**) in the top-right corner and select **Install app** / **Add to Home screen**.
@@ -116,24 +116,24 @@ git add .
 git status
 # Verify that NO personal .csv or *Backup*.json files are staged
 git commit -m "Initial production release of My Money Tracker PWA"
-git remote add origin https://github.com/sreenathmvjpv/MyMoneyTracker.git
+git remote add origin https://github.com/sreenathmvjvp/MyMoneyTracker.git
 git push -u origin main
 ```
 
 ### Step 3: Enable GitHub Pages via GitHub Actions
-1. Open your repository on GitHub: `https://github.com/sreenathmvjpv/MyMoneyTracker`
+1. Open your repository on GitHub: `https://github.com/sreenathmvjvp/MyMoneyTracker`
 2. Go to **Settings → Pages** (left sidebar).
-3. Under **Build and deployment → Source**, select **GitHub Actions**.
+3. Under **Build and deployment → Source**, select **GitHub Actions** (or **Deploy from a branch → `gh-pages`**).
 4. Go to the **Actions** tab at the top of your repository. You will see the **Deploy My Money Tracker PWA to GitHub Pages** workflow running automatically.
 5. Once the workflow turns green, your live HTTPS URL will be displayed:
-   `https://sreenathmvjpv.github.io/MyMoneyTracker/`
+   `https://sreenathmvjvp.github.io/MyMoneyTracker/`
 
 ---
 
 ## 8. Post-Deployment Verification Checklist
 
 After deploying to GitHub Pages, verify the live URL on your Android phone and desktop browser:
-- [ ] Open `https://sreenathmvjpv.github.io/MyMoneyTracker/` and confirm the Dashboard loads cleanly.
+- [ ] Open `https://sreenathmvjvp.github.io/MyMoneyTracker/` and confirm the Dashboard loads cleanly.
 - [ ] Navigate through **Home**, **Income**, **Expenses**, **Transactions**, **Family**, **Budgets**, **Goals**, **Loans & EMI**, **Reports**, and **Settings**.
 - [ ] Install the PWA on Android Chrome (**Install App**) and launch it from the home screen in standalone mode.
 - [ ] Turn on Airplane Mode / turn off internet, add a test expense, close and reopen the app, and confirm the transaction persists in IndexedDB.

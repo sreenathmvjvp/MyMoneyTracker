@@ -23,6 +23,7 @@ export const App: React.FC = () => {
   const [viewportPreset, setViewportPreset] = useState<ViewportWidthPreset>('auto');
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthYYYYMM());
   const [isAppLocked, setIsAppLocked] = useState(false);
+  const [initialEditTxId, setInitialEditTxId] = useState<string | null>(null);
   const initialLockCheckedRef = useRef(false);
   const pwaStatus = usePwaManager();
 
@@ -55,6 +56,7 @@ export const App: React.FC = () => {
     loans,
     emiPayments,
     budgets,
+    transfers,
   } = useFinanceData(selectedMonth);
 
   // Lock on initial startup if user has enabled PIN lock
@@ -105,6 +107,10 @@ export const App: React.FC = () => {
             onEnableDemoMode={() => toggleDemoMode(true)}
             onOpenQuickAdd={() => setQuickAddOpen(true)}
             onNavigate={setActivePage}
+            onEditTransaction={(txId) => {
+              setInitialEditTxId(txId);
+              setActivePage('transactions');
+            }}
           />
         )}
 
@@ -140,6 +146,20 @@ export const App: React.FC = () => {
           <TransactionsPage
             transactions={unifiedTransactions}
             onOpenQuickAdd={() => setQuickAddOpen(true)}
+            income={income}
+            expenses={expenses}
+            savingsContributions={savingsContributions}
+            emiPayments={emiPayments}
+            transfers={transfers}
+            categories={categories}
+            familyMembers={familyMembers}
+            accounts={accounts}
+            savingsGoals={savingsGoals}
+            loans={loans}
+            demoMode={demoMode}
+            onDisableDemoMode={() => toggleDemoMode(false)}
+            initialEditTxId={initialEditTxId}
+            onClearInitialEditTx={() => setInitialEditTxId(null)}
           />
         )}
 

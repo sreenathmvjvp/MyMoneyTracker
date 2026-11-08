@@ -17,6 +17,7 @@ import {
   PieChart as PieChartIcon,
   Gauge,
   Calculator,
+  Edit3,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -70,6 +71,7 @@ interface DashboardPageProps {
   onEnableDemoMode: () => void;
   onOpenQuickAdd: () => void;
   onNavigate: (page: PageRoute) => void;
+  onEditTransaction?: (txId: string) => void;
 }
 
 const CHART_COLORS = [
@@ -98,6 +100,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onEnableDemoMode,
   onOpenQuickAdd,
   onNavigate,
+  onEditTransaction,
 }) => {
   const isEmptyRealState =
     !demoMode &&
@@ -946,20 +949,34 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <p
-                      className={`text-xs font-bold sm:text-sm ${
-                        isPositive
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : isNeutral
-                          ? 'text-indigo-600 dark:text-indigo-400'
-                          : 'text-slate-900 dark:text-white'
-                      }`}
-                    >
-                      {isPositive ? '+' : '-'}
-                      {formatINR(tx.amount)}
-                    </p>
-                    <p className="text-[10px] text-slate-400">{tx.accountName}</p>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <div className="text-right">
+                      <p
+                        className={`text-xs font-bold sm:text-sm ${
+                          isPositive
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : isNeutral
+                            ? 'text-indigo-600 dark:text-indigo-400'
+                            : 'text-slate-900 dark:text-white'
+                        }`}
+                      >
+                        {isPositive ? '+' : '-'}
+                        {formatINR(tx.amount)}
+                      </p>
+                      <p className="text-[10px] text-slate-400">{tx.accountName}</p>
+                    </div>
+
+                    {onEditTransaction && (
+                      <button
+                        type="button"
+                        onClick={() => onEditTransaction(tx.id)}
+                        title="Edit Transaction"
+                        className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:border-emerald-300 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        <Edit3 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               );
