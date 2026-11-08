@@ -8,7 +8,7 @@
  * 4. Does NOT claim background cloud sync because all records live 100% locally on the device.
  */
 
-const CACHE_VERSION = 'mmt-app-shell-v3';
+const CACHE_VERSION = 'mmt-app-shell-v4';
 
 const CORE_SHELL_ASSETS = [
   './',
