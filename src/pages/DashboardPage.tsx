@@ -55,6 +55,7 @@ import {
   calculateSavingsGoalMetrics,
   summarizeSavingsGoals,
 } from '../calculations/financialCalculations';
+import { databaseService } from '../services/databaseService';
 
 interface DashboardPageProps {
   summary: MonthlyFinancialSummary;
@@ -147,6 +148,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       ? Number(Math.min(100, (numCalcContributed / numCalcTarget) * 100).toFixed(1))
       : 0;
   const calcRemainingGoal = Math.max(0, numCalcTarget - numCalcContributed);
+
+  // Opening Bank Balance formula state (Bank Balance + Salary Credit - All Payments = Available Balance)
+  const currentOpeningBalance =
+    summary.availableCashBalance -
+    (summary.totalIncome - summary.totalExpenses - summary.totalContributions);
+  const [showOpeningBalModal, setShowOpeningBalModal] = useState(false);
+  const [openingBalInput, setOpeningBalInput] = useState<string>('');
+
+  const handleOpenOpeningBalEditor = () => {
+    setOpeningBalInput(String(Math.max(0, currentOpeningBalance)));
+    setShowOpeningBalModal((prev) => !prev);
+  };
+
+  const handleSaveOpeningBal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(openingBalInput) || 0;
+    await databaseService.updatePrimaryBankOpeningBalance(val);
+    setShowOpeningBalModal(false);
+  };
 
   return (
     <div className="space-y-5">
@@ -253,7 +273,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {formatINR(summary.totalExpenses)}
           </p>
           <p className="mt-0.5 text-[11px] text-rose-600 dark:text-rose-400">
-            Actual consumption
+            Expenses + Loan EMIs
           </p>
         </button>
 
@@ -276,7 +296,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           >
             {formatINR(summary.monthlySurplus)}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500">Income − Expenses</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">Income − All Outflows</p>
         </div>
 
         {/* 4. Savings Contributions */}
@@ -302,7 +322,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </button>
 
         {/* 5. Available Balance */}
-        <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
+        <button
+          type="button"
+          onClick={handleOpenOpeningBalEditor}
+          className="text-left rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs hover:border-amber-500/40 transition cursor-pointer"
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Available Balance
@@ -314,8 +338,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <p className="mt-2 text-base font-bold sm:text-lg text-slate-900 dark:text-white">
             {formatINR(summary.availableCashBalance)}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500">Opening + Net Cash</p>
-        </div>
+          <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+            Bank + Income − Outflows
+          </p>
+        </button>
 
         {/* 6. Total EMI */}
         <button
@@ -395,6 +421,52 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </p>
         </button>
       </section>
+
+      {showOpeningBalModal && (
+        <section className="rounded-2xl border-2 border-amber-500/40 bg-amber-50/70 dark:bg-amber-950/20 p-4 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                Available & Surplus Balance Formula
+              </h3>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                Opening Bank Balance ({formatINR(Math.max(0, currentOpeningBalance))}) + Credited Income ({formatINR(summary.totalIncome)}) − All Outflows ({formatINR(summary.totalExpenses + summary.totalContributions)}) ={' '}
+                <strong className="text-slate-900 dark:text-white">
+                  {formatINR(summary.availableCashBalance)}
+                </strong>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowOpeningBalModal(false)}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+          <form onSubmit={handleSaveOpeningBal} className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Opening Bank Balance (Before Monthly Salary Credit) (₹)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={openingBalInput}
+                onChange={(e) => setOpeningBalInput(e.target.value)}
+                className="w-56 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-1.5 text-xs font-bold text-white transition cursor-pointer"
+            >
+              Save Opening Balance
+            </button>
+          </form>
+        </section>
+      )}
 
       {/* Prompt 6 Part C: Budget & Loan Commitments Overview */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">

@@ -1776,4 +1776,40 @@ export const databaseService = {
     const passed = steps.every((s) => s.status === 'PASS');
     return { passed, steps };
   },
+
+  /**
+   * Updates the opening bank balance for the primary salary bank account
+   * (used in Available Balance = Opening Bank Balance + Credited Income - All Payments).
+   */
+  async updatePrimaryBankOpeningBalance(openingBalance: number): Promise<void> {
+    const cleanAmount = Number(openingBalance);
+    if (!Number.isFinite(cleanAmount) || cleanAmount < 0) {
+      throw new Error('Opening bank balance must be zero or a positive number.');
+    }
+    const nowIso = new Date().toISOString();
+    await db.transaction('rw', [db.accounts], async () => {
+      const allAccounts = await db.accounts.toArray();
+      const primary =
+        allAccounts.find((a) => a.id === 'acc_salary_bank') ||
+        allAccounts.find((a) => a.isDefault) ||
+        allAccounts[0];
+      if (primary) {
+        const delta = cleanAmount - primary.openingBalance;
+        await db.accounts.update(primary.id, {
+          openingBalance: cleanAmount,
+          currentBalance: primary.currentBalance + delta,
+          updatedAt: nowIso,
+        });
+        // Zero out any secondary account opening balances so total Opening Bank Balance matches cleanAmount
+        for (const acc of allAccounts) {
+          if (acc.id !== primary.id && acc.openingBalance !== 0) {
+            await db.accounts.update(acc.id, {
+              openingBalance: 0,
+              updatedAt: nowIso,
+            });
+          }
+        }
+      }
+    });
+  },
 };

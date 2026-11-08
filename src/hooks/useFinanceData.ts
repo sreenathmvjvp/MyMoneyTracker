@@ -129,6 +129,7 @@ export function useFinanceData(selectedMonth = getCurrentMonthYYYYMM()) {
         expenseRecords: activeExpenses,
         contributionRecords: activeContributions,
         emiRecords: activeEmiPayments,
+        loans: activeLoans,
         transferRecords: activeTransfers,
         accounts: activeAccounts,
       }),
@@ -138,30 +139,61 @@ export function useFinanceData(selectedMonth = getCurrentMonthYYYYMM()) {
       activeExpenses,
       activeContributions,
       activeEmiPayments,
+      activeLoans,
       activeTransfers,
       activeAccounts,
     ]
   );
 
-  // Total Monthly EMI commitment across active loans
+  // Total Monthly EMI commitment across active loans and recorded EMIs
   const { totalMonthlyEmiCommitment, totalOutstandingLoanPrincipal } = useMemo(() => {
     const activeOnly = activeLoans.filter((l) => l.status === 'active');
+    const scheduledLoanEmi = activeOnly.reduce((sum, l) => sum + l.monthlyEmi, 0);
     return {
-      totalMonthlyEmiCommitment: activeOnly.reduce((sum, l) => sum + l.monthlyEmi, 0),
+      totalMonthlyEmiCommitment: Math.max(scheduledLoanEmi, monthlySummary.totalEmiPaid),
       totalOutstandingLoanPrincipal: activeOnly.reduce(
         (sum, l) => sum + l.outstandingPrincipal,
         0
       ),
     };
-  }, [activeLoans]);
+  }, [activeLoans, monthlySummary.totalEmiPaid]);
 
   const { categoryBreakdown, familyBreakdown } = useMemo(() => {
     const monthExpenses = activeExpenses.filter((e) => e.month === selectedMonth);
+    const additionalEmiOutflow = monthlySummary.totalEmiPaid;
+
+    const combinedExpenses =
+      additionalEmiOutflow > 0
+        ? [
+            ...monthExpenses,
+            {
+              id: `emi_agg_${selectedMonth}`,
+              transactionDate: `${selectedMonth}-05`,
+              month: selectedMonth,
+              categoryId: 'cat_loan_emi',
+              categoryName: 'Loan EMI',
+              categoryGroup: 'Financial' as const,
+              subcategory: 'Monthly Loan EMIs',
+              description: 'Loan EMI Commitments & Payments',
+              amount: additionalEmiOutflow,
+              paidBy: 'Self' as const,
+              familyMemberId: 'fam_self',
+              familyMemberName: 'Self',
+              paymentMode: 'Bank Transfer' as const,
+              accountId: 'acc_salary_bank',
+              accountName: 'Primary Salary Bank Account',
+              fingerprint: `emi_agg_${selectedMonth}`,
+              createdAt: '',
+              updatedAt: '',
+            },
+          ]
+        : monthExpenses;
+
     return {
-      categoryBreakdown: buildCategoryExpenseBreakdown(monthExpenses),
-      familyBreakdown: buildFamilyExpenseBreakdown(monthExpenses),
+      categoryBreakdown: buildCategoryExpenseBreakdown(combinedExpenses),
+      familyBreakdown: buildFamilyExpenseBreakdown(combinedExpenses),
     };
-  }, [activeExpenses, selectedMonth]);
+  }, [activeExpenses, selectedMonth, monthlySummary.totalEmiPaid]);
 
   const goalsSummary = useMemo(() => summarizeSavingsGoals(activeGoals), [activeGoals]);
 
@@ -247,7 +279,9 @@ export function useFinanceData(selectedMonth = getCurrentMonthYYYYMM()) {
             selectedMonth,
             activeIncome,
             activeExpenses,
-            activeContributions
+            activeContributions,
+            activeEmiPayments,
+            activeLoans
           ),
     [
       demoMode,
@@ -256,6 +290,8 @@ export function useFinanceData(selectedMonth = getCurrentMonthYYYYMM()) {
       activeIncome,
       activeExpenses,
       activeContributions,
+      activeEmiPayments,
+      activeLoans,
     ]
   );
 
@@ -312,8 +348,10 @@ export function useFinanceData(selectedMonth = getCurrentMonthYYYYMM()) {
 function buildRealMonthlyTrend(
   currentMonth: string,
   income: { salaryMonth: string; status: string; amount: number }[],
-  expenses: { month: string; amount: number }[],
-  contributions: { month: string; amount: number }[]
+  expenses: { month: string; amount: number; categoryId?: string; categoryName?: string }[],
+  contributions: { month: string; amount: number }[],
+  emiPayments: { month: string; totalAmount: number; loanId: string }[],
+  loans: { id: string; status: string; monthlyEmi: number; startDate?: string }[]
 ): MonthlyTrendPoint[] {
   const [year, month] = currentMonth.split('-').map(Number);
   const points: MonthlyTrendPoint[] = [];
@@ -326,9 +364,34 @@ function buildRealMonthlyTrend(
     const incTotal = income
       .filter((i) => i.salaryMonth === ym && i.status === 'credited')
       .reduce((s, i) => s + i.amount, 0);
-    const expTotal = expenses
-      .filter((e) => e.month === ym)
+
+    const monthExp = expenses.filter((e) => e.month === ym);
+    const directExpTotal = monthExp.reduce((s, e) => s + e.amount, 0);
+
+    const monthEmis = emiPayments.filter((p) => p.month === ym);
+    const recordedEmi = monthEmis.reduce((s, p) => s + p.totalAmount, 0);
+    const recordedLoanIds = new Set(monthEmis.map((p) => p.loanId));
+
+    const hasActivityInMonth =
+      incTotal > 0 || directExpTotal > 0 || recordedEmi > 0 || ym === currentMonth;
+
+    const unrecordedLoanEmi = hasActivityInMonth
+      ? loans
+          .filter((l) => l.status === 'active' && !recordedLoanIds.has(l.id))
+          .reduce((s, l) => s + l.monthlyEmi, 0)
+      : 0;
+
+    const expEmiLogged = monthExp
+      .filter(
+        (e) =>
+          e.categoryId === 'cat_loan_emi' ||
+          (e.categoryName && e.categoryName.trim().toLowerCase() === 'loan emi')
+      )
       .reduce((s, e) => s + e.amount, 0);
+
+    const totalEmiForMonth = recordedEmi + Math.max(0, unrecordedLoanEmi - expEmiLogged);
+    const expTotal = directExpTotal + totalEmiForMonth;
+
     const savTotal = contributions
       .filter((c) => c.month === ym)
       .reduce((s, c) => s + c.amount, 0);

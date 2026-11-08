@@ -3,6 +3,7 @@ import type {
   EmiPaymentRecord,
   ExpenseRecord,
   IncomeRecord,
+  LoanRecord,
   MonthlyFinancialSummary,
   SavingsContributionRecord,
   SavingsGoalRecord,
@@ -15,11 +16,11 @@ import { getIndianFinancialYear } from '../utilities/formatters';
  *
  * Rules enforced:
  * 1. Total Income = Credited Salary + Credited Additional Income (Pending salary excluded).
- * 2. Total Expenses = Actual consumption expense records (Self-transfers & goal contributions excluded).
- * 3. Monthly Surplus = Total Income - Total Expenses.
+ * 2. Total Expenses = Actual consumption expense records + Monthly Loan EMI payments (Self-transfers & goal contributions excluded).
+ * 3. Monthly Surplus = Total Income - Total Expenses (includes all expenses + EMIs).
  * 4. Savings Contributions = Explicit allocations to savings/investments (never auto-assumed from surplus).
  * 5. Unallocated Surplus = Monthly Surplus - Total Contributions.
- * 6. Available Cash Balance = Opening Balance + Total Credited Income - Cash Outflows.
+ * 6. Available Cash Balance = Opening Bank Balance + Total Credited Income - All Payments (Expenses + EMIs + Savings Contributions).
  */
 export function calculateMonthlyFinancialSummary(params: {
   month: string;
@@ -27,6 +28,7 @@ export function calculateMonthlyFinancialSummary(params: {
   expenseRecords: ExpenseRecord[];
   contributionRecords: SavingsContributionRecord[];
   emiRecords: EmiPaymentRecord[];
+  loans?: LoanRecord[];
   transferRecords: TransferRecord[];
   accounts: AccountRecord[];
   openingCashBalanceOverride?: number;
@@ -37,6 +39,7 @@ export function calculateMonthlyFinancialSummary(params: {
     expenseRecords,
     contributionRecords,
     emiRecords,
+    loans = [],
     transferRecords,
     accounts,
     openingCashBalanceOverride,
@@ -59,7 +62,37 @@ export function calculateMonthlyFinancialSummary(params: {
   const totalIncome = salaryCredited + additionalIncome;
 
   const monthExpenses = expenseRecords.filter((rec) => rec.month === month);
-  const totalExpenses = monthExpenses.reduce((sum, rec) => sum + rec.amount, 0);
+  const directExpenses = monthExpenses.reduce((sum, rec) => sum + rec.amount, 0);
+
+  // Calculate Monthly EMI Payments (from recorded EMI payments + active loans not yet recorded in emiRecords)
+  const monthEmiRecords = emiRecords.filter((rec) => rec.month === month);
+  const recordedEmiTotal = monthEmiRecords.reduce((sum, rec) => sum + rec.totalAmount, 0);
+
+  const recordedLoanIdsInMonth = new Set(monthEmiRecords.map((rec) => rec.loanId));
+  const expenseEmiAlreadyLogged = monthExpenses
+    .filter(
+      (exp) =>
+        exp.categoryId === 'cat_loan_emi' ||
+        exp.categoryName.trim().toLowerCase() === 'loan emi'
+    )
+    .reduce((sum, exp) => sum + exp.amount, 0);
+
+  const unrecordedActiveLoanEmiTotal = loans
+    .filter((loan) => {
+      if (loan.status !== 'active') return false;
+      if (recordedLoanIdsInMonth.has(loan.id)) return false;
+      return true;
+    })
+    .reduce((sum, loan) => sum + loan.monthlyEmi, 0);
+
+  const netScheduledLoanEmi = Math.max(
+    0,
+    unrecordedActiveLoanEmiTotal - expenseEmiAlreadyLogged
+  );
+  const totalEmiPaid = recordedEmiTotal + netScheduledLoanEmi;
+
+  // Total Expenses includes all daily/family expenses plus Loan EMI outflows
+  const totalExpenses = directExpenses + totalEmiPaid;
 
   const monthlySurplus = totalIncome - totalExpenses;
 
@@ -77,10 +110,6 @@ export function calculateMonthlyFinancialSummary(params: {
   const savingsRatePercent =
     totalIncome > 0 ? Number(((monthlySurplus / totalIncome) * 100).toFixed(1)) : 0;
 
-  const totalEmiPaid = emiRecords
-    .filter((rec) => rec.month === month)
-    .reduce((sum, rec) => sum + rec.totalAmount, 0);
-
   const selfTransfersTotal = transferRecords
     .filter((rec) => rec.month === month)
     .reduce((sum, rec) => sum + rec.amount, 0);
@@ -92,7 +121,7 @@ export function calculateMonthlyFinancialSummary(params: {
           .filter((acc) => acc.isActive)
           .reduce((sum, acc) => sum + acc.openingBalance, 0);
 
-  // Available cash balance: Opening balance + Income - Cash Outflows
+  // Available cash balance: Opening Bank Balance + Salary/Income Credited - All Payments (Expenses + EMIs + Savings Contributions)
   // Note: Self-transfers between own accounts net to ₹0 across total available cash.
   const cashOutflows = totalExpenses + totalContributions;
   const availableCashBalance = accountsOpeningTotal + totalIncome - cashOutflows;

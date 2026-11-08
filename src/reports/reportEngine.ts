@@ -470,16 +470,18 @@ export function buildMonthlyPerformanceReport(params: {
       const totalIncome = salaryIncome + additionalIncome;
 
       const mExp = params.expenses.filter((e) => e.month === month);
-      const totalExpenses = mExp.reduce((s, e) => s + e.amount, 0);
+      const directExpenses = mExp.reduce((s, e) => s + e.amount, 0);
+
+      const emiPaid = params.emiPayments
+        .filter((p) => p.month === month)
+        .reduce((s, p) => s + p.totalAmount, 0);
+
+      const totalExpenses = directExpenses + emiPaid;
       const monthlySurplus = totalIncome - totalExpenses;
 
       const savingsContributions = params.contributions
         .filter((c) => c.month === month)
         .reduce((s, c) => s + c.amount, 0);
-
-      const emiPaid = params.emiPayments
-        .filter((p) => p.month === month)
-        .reduce((s, p) => s + p.totalAmount, 0);
 
       const savingsRatePercent =
         totalIncome > 0
@@ -554,10 +556,11 @@ export function buildYearlyFinancialComparison(params: {
         .filter((i) => i.type !== 'salary')
         .reduce((s, i) => s + i.amount, 0);
       const totalIncome = salaryIncome + additionalIncome;
-      const totalExpenses = expList.reduce((s, e) => s + e.amount, 0);
+      const directExpenses = expList.reduce((s, e) => s + e.amount, 0);
+      const totalEmiPaid = emiList.reduce((s, p) => s + p.totalAmount, 0);
+      const totalExpenses = directExpenses + totalEmiPaid;
       const totalSurplus = totalIncome - totalExpenses;
       const totalSavingsContributions = conList.reduce((s, c) => s + c.amount, 0);
-      const totalEmiPaid = emiList.reduce((s, p) => s + p.totalAmount, 0);
       const savingsRatePercent =
         totalIncome > 0
           ? Number(((totalSurplus / totalIncome) * 100).toFixed(1))
